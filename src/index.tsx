@@ -367,6 +367,31 @@ const AllyVibeControl = () => {
 // Plugin entry point
 // ------------------------------------------------------------------ //
 
+// Subscribe to resume-from-suspend. Newer Steam clients (mid-2026) removed
+// SteamClient.System.RegisterForOnResumeFromSuspend; the replacement signal is
+// SteamClient.User.RegisterForResumeSuspendedGamesProgress, which fires
+// (possibly several times) while Steam resumes after wake, so debounce it.
+const registerForResume = (
+  callback: () => void
+): { unregister?: () => void } | null => {
+  const system = SteamClient?.System;
+  if (system?.RegisterForOnResumeFromSuspend) {
+    return system.RegisterForOnResumeFromSuspend(callback);
+  }
+  const user = SteamClient?.User;
+  if (user?.RegisterForResumeSuspendedGamesProgress) {
+    let lastFired = 0;
+    return user.RegisterForResumeSuspendedGamesProgress(() => {
+      const now = Date.now();
+      if (now - lastFired < 5000) return;
+      lastFired = now;
+      callback();
+    });
+  }
+  console.error("[ally-vibe] no resume-from-suspend API available");
+  return null;
+};
+
 export default definePlugin(() => {
   // On resume from suspend the device re-enumerates and the asus_ally_hid
   // driver resets vibration_intensity to its default (max). The saved settings
@@ -376,13 +401,11 @@ export default definePlugin(() => {
   // Registered here at the plugin root (not inside the panel component) so it
   // stays active even when the Quick Access Menu is closed and the panel has
   // unmounted.
-  const resumeRegistration = SteamClient?.System?.RegisterForOnResumeFromSuspend?.(
-    () => {
-      reapplyIntensity().catch((e) =>
-        console.error("[ally-vibe] resume reapply failed", e)
-      );
-    }
-  );
+  const resumeRegistration = registerForResume(() => {
+    reapplyIntensity().catch((e) =>
+      console.error("[ally-vibe] resume reapply failed", e)
+    );
+  });
 
   return {
     name: "Ally Vibe Control",
