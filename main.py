@@ -33,7 +33,7 @@ settings = SettingsManager(
 _EVIOCGBIT_FF  = 0x80204535
 # EVIOCSFF → upload an ff_effect struct; kernel writes back the assigned id
 _EVIOCSFF      = 0x40304580
-# EVIOCRMFF → remove an effect by id (takes a signed int, 4 bytes)
+# EVIOCRMFF → remove an effect by id (id passed by value, not by pointer)
 _EVIOCRMFF     = 0x40044581
 _EV_FF         = 0x15
 _FF_RUMBLE     = 0x50
@@ -245,7 +245,10 @@ class Plugin:
                 os.write(fd, _input_event(_EV_FF, effect_id, 1))   # play
                 await asyncio.sleep(duration / 1000.0)
                 os.write(fd, _input_event(_EV_FF, effect_id, 0))   # stop
-                fcntl.ioctl(fd, _EVIOCRMFF, struct.pack('<i', effect_id))
+                # EVIOCRMFF takes the effect id as the ioctl argument value
+                # itself, not a pointer to it — passing a packed buffer makes
+                # the kernel read the buffer address as the id and fail EINVAL.
+                fcntl.ioctl(fd, _EVIOCRMFF, effect_id)
 
                 decky.logger.info(
                     f"[ally-vibe] test_vibration: L={left}% R={right}% "
